@@ -1,0 +1,24 @@
+[
+  {
+    "patient_id": 1,
+    "room_charge": 12000.0,
+    "treatment_charge": 1000.0,
+    "pharmacy_charge": 10.0,
+    "lab_charge": 400.0,
+    "service_charge": 500.0,
+    "name": "Basavraj",
+    "age": 21,
+    "address": "Pune",
+    "admit_date": "2025-11-07",
+    "discharge_date": "",
+    "bed_id": "ICU-1",
+    "discharged": false,
+    "assigned_doctor": {
+      "id": 1,
+      "name": "Dr. A. Sharma",
+      "specialty": "General Medicine",
+      "fee": 500.0
+    },
+    "doctor_fee": 500.0
+  }
+]

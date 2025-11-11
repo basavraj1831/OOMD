@@ -2,13 +2,13 @@
   {
     "patient_id": 1,
     "room_charge": 12000.0,
-    "treatment_charge": 1000.0,
-    "pharmacy_charge": 10.0,
-    "lab_charge": 400.0,
+    "treatment_charge": 1300.0,
+    "pharmacy_charge": 560.0,
+    "lab_charge": 1200.0,
     "service_charge": 500.0,
     "name": "Basavraj",
-    "age": 21,
-    "address": "Pune",
+    "age": 30,
+    "address": "Nigdi",
     "admit_date": "2025-11-07",
     "discharge_date": "",
     "bed_id": "ICU-1",
@@ -19,6 +19,90 @@
       "specialty": "General Medicine",
       "fee": 500.0
     },
-    "doctor_fee": 500.0
+    "doctor_fee": 500.0,
+    "pharmacy_items": {
+      "Paracetamol": 1,
+      "Antibiotic Course": 1,
+      "Painkiller": 0,
+      "Injection": 1,
+      "Medicine Kit": 0
+    },
+    "treatment_items": {
+      "Consultations": 1,
+      "Minor Procedures": 0,
+      "Major Surgeries": 0,
+      "Physio Sessions": 1,
+      "ICU Care": 0
+    },
+    "lab_items": {
+      "Blood Test": 1,
+      "X-Ray": 1,
+      "MRI": 0,
+      "CT Scan": 0,
+      "Ultrasound": 0
+    }
+  },
+  {
+    "patient_id": 2,
+    "room_charge": 0.0,
+    "treatment_charge": 0.0,
+    "pharmacy_charge": 0.0,
+    "lab_charge": 0.0,
+    "service_charge": 500.0,
+    "name": "Omkar",
+    "age": 22,
+    "address": "Sangli",
+    "admit_date": "2025-11-07",
+    "discharge_date": "2025-11-07",
+    "bed_id": "ICU-2",
+    "discharged": true,
+    "assigned_doctor": null,
+    "doctor_fee": 0.0,
+    "pharmacy_items": {},
+    "treatment_items": {},
+    "lab_items": {}
+  },
+  {
+    "patient_id": 3,
+    "room_charge": 8000,
+    "treatment_charge": 500,
+    "pharmacy_charge": 410,
+    "lab_charge": 1200,
+    "service_charge": 500.0,
+    "name": "Saurabh",
+    "age": 30,
+    "address": "nss",
+    "admit_date": "2025-11-07",
+    "discharge_date": "",
+    "bed_id": "Private-1",
+    "discharged": false,
+    "assigned_doctor": {
+      "id": 1,
+      "name": "Dr. A. Sharma",
+      "specialty": "General Medicine",
+      "fee": 500.0
+    },
+    "doctor_fee": 500.0,
+    "pharmacy_items": {
+      "Paracetamol": 1,
+      "Antibiotic Course": 1,
+      "Painkiller": 0,
+      "Injection": 0,
+      "Medicine Kit": 0
+    },
+    "treatment_items": {
+      "Consultations": 1,
+      "Minor Procedures": 0,
+      "Major Surgeries": 0,
+      "Physio Sessions": 0,
+      "ICU Care": 0
+    },
+    "lab_items": {
+      "Blood Test": 1,
+      "X-Ray": 1,
+      "MRI": 0,
+      "CT Scan": 0,
+      "Ultrasound": 0
+    }
   }
 ]

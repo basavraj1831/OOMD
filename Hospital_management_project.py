@@ -110,6 +110,13 @@ class HospitalManagement:
         self.assigned_doctor = None
         self.doctor_fee = 0.0
 
+        # --- ITEMIZED STORAGE (new) ---
+        # These dictionaries hold per-item quantities for persistence and cumulative updates
+        # keys are human-readable strings used in the Streamlit UI and saved to disk
+        self.pharmacy_items = {}  # e.g. {"Paracetamol": 3, "Antibiotic Course": 1}
+        self.treatment_items = {}  # e.g. {"Consultation": 2, "Physio sessions": 5}
+        self.lab_items = {}  # e.g. {"Blood Test": 1, "X-Ray": 2}
+
     # --- Serialization helpers ---
     def to_dict(self):
         return {
@@ -128,6 +135,10 @@ class HospitalManagement:
             "discharged": self.discharged,
             "assigned_doctor": self.assigned_doctor.to_dict() if self.assigned_doctor else None,
             "doctor_fee": self.doctor_fee,
+            # persist itemized quantities
+            "pharmacy_items": self.pharmacy_items,
+            "treatment_items": self.treatment_items,
+            "lab_items": self.lab_items,
         }
 
     @classmethod
@@ -150,6 +161,15 @@ class HospitalManagement:
         if d.get("assigned_doctor"):
             inst.assigned_doctor = Doctor.from_dict(d["assigned_doctor"])
             inst.doctor_fee = d.get("doctor_fee", 0.0)
+
+        # load persisted itemized data (default to empty dicts)
+        inst.pharmacy_items = d.get("pharmacy_items", {}) or {}
+        inst.treatment_items = d.get("treatment_items", {}) or {}
+        inst.lab_items = d.get("lab_items", {}) or {}
+
+        # Ensure numeric charges are consistent with the item dictionaries if needed.
+        # (We preserve the stored totals to avoid recalculation surprises; items and totals
+        # remain authoritative as saved.)
         return inst
 
     # === Guard to block operations for discharged patient ===
@@ -194,7 +214,6 @@ class HospitalManagement:
 
     # === Bed / room selection (CLI) ===
     def select_bed(self, patients_list):
-        # patients_list is used to compute availability
         self._ensure_not_discharged()
         available = HospitalManagement.compute_available_beds(patients_list)
         print("We have the following bed types available (only unused beds shown):")
@@ -263,7 +282,8 @@ class HospitalManagement:
                 except Exception:
                     qty = 1
                 prices = {1: 500, 2: 4000, 3: 25000, 4: 800, 5: 5000}
-                self.treatment_charge += prices[c] * qty
+                # update cumulative
+                self.add_treatment_item(c, qty)
             else:
                 print("Invalid option")
 
@@ -289,8 +309,8 @@ class HospitalManagement:
                     qty = int(input("Enter the quantity:"))
                 except Exception:
                     qty = 1
-                prices = {1: 10, 2: 400, 3: 50, 4: 150, 5: 700}
-                self.pharmacy_charge += prices[c] * qty
+                # update cumulative
+                self.add_pharmacy_item(c, qty)
             else:
                 print("Invalid option")
 
@@ -317,8 +337,8 @@ class HospitalManagement:
                     qty = int(input("Enter quantity (or 1 if single test):"))
                 except Exception:
                     qty = 1
-                prices = {1: 400, 2: 800, 3: 7000, 4: 5000, 5: 1200}
-                self.lab_charge += prices[c] * qty
+                # update cumulative
+                self.add_lab_test(c, qty)
             else:
                 print("Invalid option")
 
@@ -395,57 +415,129 @@ class HospitalManagement:
         self.room_charge = rate * nights
         self.bed_id = bed_id
 
+    # --- UPDATED: itemized adders that also update quantities and totals (cumulative) ---
     def add_treatment_item(self, choice, qty):
+        """
+        choice: 1..5 where mapping below
+        qty: integer
+        Cumulatively updates treatment_items dict and treatment_charge.
+        """
         self._ensure_not_discharged()
-        prices = {1: 500, 2: 4000, 3: 25000, 4: 800, 5: 5000}
+        prices = {1: (500, "Consultation"),
+                  2: (4000, "Minor Procedure"),
+                  3: (25000, "Major Surgery"),
+                  4: (800, "Physio sessions"),
+                  5: (5000, "ICU extras")}
         if choice in prices:
-            self.treatment_charge += prices[choice] * qty
+            price, name = prices[choice]
+            # cumulative qty
+            self.treatment_items[name] = self.treatment_items.get(name, 0) + int(qty)
+            self.treatment_charge += price * int(qty)
         else:
             raise ValueError("Invalid treatment choice")
 
     def add_pharmacy_item(self, choice, qty):
+        """
+        choice: 1..5 mapping
+        qty: integer
+        Cumulatively updates pharmacy_items and pharmacy_charge.
+        """
         self._ensure_not_discharged()
-        prices = {1: 10, 2: 400, 3: 50, 4: 150, 5: 700}
+        prices = {1: (10, "Paracetamol"),
+                  2: (400, "Antibiotic Course"),
+                  3: (50, "Painkiller"),
+                  4: (150, "Injection"),
+                  5: (700, "Medicine Kit")}
         if choice in prices:
-            self.pharmacy_charge += prices[choice] * qty
+            price, name = prices[choice]
+            self.pharmacy_items[name] = self.pharmacy_items.get(name, 0) + int(qty)
+            self.pharmacy_charge += price * int(qty)
         else:
             raise ValueError("Invalid pharmacy choice")
 
     def add_lab_test(self, choice, qty):
+        """
+        choice: 1..5 mapping
+        qty: integer
+        Cumulatively updates lab_items and lab_charge.
+        """
         self._ensure_not_discharged()
-        prices = {1: 400, 2: 800, 3: 7000, 4: 5000, 5: 1200}
+        prices = {1: (400, "Blood Test"),
+                  2: (800, "X-Ray"),
+                  3: (7000, "MRI"),
+                  4: (5000, "CT Scan"),
+                  5: (1200, "Ultrasound")}
         if choice in prices:
-            self.lab_charge += prices[choice] * qty
+            price, name = prices[choice]
+            self.lab_items[name] = self.lab_items.get(name, 0) + int(qty)
+            self.lab_charge += price * int(qty)
         else:
             raise ValueError("Invalid lab test choice")
 
     def get_bill_text(self):
+        # Header Border
+        border = "=" * 40
+        sub_border = "-" * 40
+
+        # Title centered
         lines = []
-        lines.append("******SANJIVNI HOSPITAL BILL******")
-        lines.append("Patient details:")
-        lines.append(f"Patient id: {self.patient_id}")
-        lines.append(f"Patient name: {self.name}")
-        lines.append(f"Age: {self.age}")
-        lines.append(f"Patient address: {self.address}")
-        lines.append(f"Admission date: {self.admit_date}")
-        lines.append(f"Discharge date: {self.discharge_date}")
-        lines.append(f"Bed id: {self.bed_id}")
-        lines.append(f"Room charges: {self.room_charge}")
-        lines.append(f"Treatment charges: {self.treatment_charge}")
-        lines.append(f"Pharmacy charges: {self.pharmacy_charge}")
-        lines.append(f"Lab charges: {self.lab_charge}")
+        lines.append(border)
+        lines.append(f"{'                 SANJIVNI HOSPITAL BILL':^40}")
+        lines.append(border)
+        lines.append("")
+
+        # Patient Details Section
+        lines.append("Patient Details:")
+        lines.append(sub_border)
+        lines.append(f"{'Patient ID':20}: {self.patient_id}")
+        lines.append(f"{'Name':20}: {self.name}")
+        lines.append(f"{'Age':20}: {self.age}")
+        lines.append(f"{'Address':20}: {self.address}")
+        lines.append(f"{'Admission Date':20}: {self.admit_date}")
+        lines.append(f"{'Discharge Date':20}: {self.discharge_date}")
+        lines.append(f"{'Bed ID':20}: {self.bed_id}")
+        lines.append("")
+
+        # Charges Section
+        lines.append("Charges Breakdown:")
+        lines.append(sub_border)
+        lines.append(f"{'Room Charges':20}: ₹{self.room_charge:,.2f}")
+        lines.append(f"{'Treatment Charges':20}: ₹{self.treatment_charge:,.2f}")
+        lines.append(f"{'Pharmacy Charges':20}: ₹{self.pharmacy_charge:,.2f}")
+        lines.append(f"{'Lab Charges':20}: ₹{self.lab_charge:,.2f}")
+
+        # Doctor Info
         if self.assigned_doctor:
-            lines.append(f"Assigned doctor: {self.assigned_doctor.name} ({self.assigned_doctor.specialty})")
-            lines.append(f"Doctor fee: {self.doctor_fee}")
+            lines.append(f"{'Doctor Assigned':20}: {self.assigned_doctor.name} ({self.assigned_doctor.specialty})")
+            lines.append(f"{'Doctor Fee':20}: ₹{self.doctor_fee:,.2f}")
         else:
-            lines.append("Assigned doctor: None")
-            lines.append("Doctor fee: 0.0")
-        subtotal = self.room_charge + self.treatment_charge + self.pharmacy_charge + self.lab_charge + self.doctor_fee
-        lines.append(f"Your sub total bill is: {subtotal}")
-        lines.append(f"Additional Service Charges is {self.service_charge}")
-        lines.append(f"====================================")
-        lines.append(f"Your grandtotal bill is: {subtotal + self.service_charge}")
+            lines.append(f"{'Doctor Assigned':20}: None")
+            lines.append(f"{'Doctor Fee':20}: ₹0.00")
+
+        lines.append("")
+
+        # Bill Calculation
+        subtotal = (
+            self.room_charge
+            + self.treatment_charge
+            + self.pharmacy_charge
+            + self.lab_charge
+            + self.doctor_fee
+        )
+
+        lines.append(sub_border)
+        lines.append(f"{'Subtotal':20}: ₹{subtotal:,.2f}")
+        lines.append(f"{'Service Charges':20}: ₹{self.service_charge:,.2f}")
+        lines.append(sub_border)
+        grand_total = subtotal + self.service_charge
+        lines.append(f"{'Grand Total':20}: ₹{grand_total:,.2f}")
+        lines.append("")
+        lines.append(border)
+        lines.append(f"{'     Thank You for Choosing Sanjivni Hospital..!':^40}")
+        lines.append(border)
+
         return "\n".join(lines)
+
 
     # === Discharge patient ===
     def discharge(self, discharge_date=None, zero_out_charges=True):
@@ -463,6 +555,10 @@ class HospitalManagement:
             self.pharmacy_charge = 0.0
             self.lab_charge = 0.0
             self.doctor_fee = 0.0
+            # Optionally also clear itemized counts (keeps persisted counts if you want)
+            self.treatment_items = {}
+            self.pharmacy_items = {}
+            self.lab_items = {}
         print(f"Patient {self.patient_id} discharged. Bed {self.bed_id} is now free.")
         # free bed happens implicitly because availability is computed by checking discharged flag
 
@@ -753,57 +849,99 @@ def streamlit_app():
             # Treatments
             st.write("Treatments / Procedures")
             col1, col2 = st.columns(2)
+            # Prefill from inst.treatment_items (new)
+            existing_t = inst.treatment_items if inst else {}
+
             with col1:
-                t1 = st.number_input("Consultations (Rs500)", min_value=0, value=0, key=f"t1_{inst.patient_id}")
-                t2 = st.number_input("Minor Procedures (Rs4000)", min_value=0, value=0, key=f"t2_{inst.patient_id}")
-                t3 = st.number_input("Major Surgery (Rs25000)", min_value=0, value=0, key=f"t3_{inst.patient_id}")
+                t1 = st.number_input("Consultations (Rs500)", min_value=0, value=existing_t.get("Consultation", 0), key=f"t1_{inst.patient_id}")
+                t2 = st.number_input("Minor Procedures (Rs4000)", min_value=0, value=existing_t.get("Minor Procedure", 0), key=f"t2_{inst.patient_id}")
+                t3 = st.number_input("Major Surgery (Rs25000)", min_value=0, value=existing_t.get("Major Surgery", 0), key=f"t3_{inst.patient_id}")
             with col2:
-                t4 = st.number_input("Physio sessions (Rs800)", min_value=0, value=0, key=f"t4_{inst.patient_id}")
-                t5 = st.number_input("ICU extras (Rs5000)", min_value=0, value=0, key=f"t5_{inst.patient_id}")
+                t4 = st.number_input("Physio sessions (Rs800)", min_value=0, value=existing_t.get("Physio sessions", 0), key=f"t4_{inst.patient_id}")
+                t5 = st.number_input("ICU extras (Rs5000)", min_value=0, value=existing_t.get("ICU extras", 0), key=f"t5_{inst.patient_id}")
 
             if st.button("Add Treatments"):
                 try:
+                    added = False
                     for idx, qty in enumerate((t1, t2, t3, t4, t5), start=1):
                         if qty:
+                            # compute new_quantity_to_add: use submitted qty minus stored quantity to support either
+                            # direct "set" flow or cumulative flow; here we treat number_input as "add this many now"
                             inst.add_treatment_item(idx, int(qty))
-                    save_data(st.session_state.patients)
-                    st.success(f"Added treatments. Total treatment cost: Rs {inst.treatment_charge}")
+                            added = True
+                    if added:
+                        save_data(st.session_state.patients)
+                        st.success(f"Added treatments. Total treatment cost: Rs {inst.treatment_charge}")
+                    else:
+                        st.info("No treatments added.")
                 except RuntimeError as e:
                     st.error(str(e))
+
+            # show treatment summary
+            if inst.treatment_items:
+                st.markdown("**Current Treatments Summary:**")
+                for name, q in inst.treatment_items.items():
+                    st.write(f"- {name}: {q}")
 
             # Pharmacy
             st.write("Pharmacy")
-            p1 = st.number_input("Paracetamol (Rs10)", min_value=0, value=0, key=f"p1_{inst.patient_id}")
-            p2 = st.number_input("Antibiotic course (Rs400)", min_value=0, value=0, key=f"p2_{inst.patient_id}")
-            p3 = st.number_input("Painkiller (Rs50)", min_value=0, value=0, key=f"p3_{inst.patient_id}")
-            p4 = st.number_input("Injection (Rs150)", min_value=0, value=0, key=f"p4_{inst.patient_id}")
-            p5 = st.number_input("Medicine Kit (Rs700)", min_value=0, value=0, key=f"p5_{inst.patient_id}")
+            existing_p = inst.pharmacy_items if inst else {}
+            p1 = st.number_input("Paracetamol (Rs10)", min_value=0, value=existing_p.get("Paracetamol", 0), key=f"p1_{inst.patient_id}")
+            p2 = st.number_input("Antibiotic course (Rs400)", min_value=0, value=existing_p.get("Antibiotic Course", 0), key=f"p2_{inst.patient_id}")
+            p3 = st.number_input("Painkiller (Rs50)", min_value=0, value=existing_p.get("Painkiller", 0), key=f"p3_{inst.patient_id}")
+            p4 = st.number_input("Injection (Rs150)", min_value=0, value=existing_p.get("Injection", 0), key=f"p4_{inst.patient_id}")
+            p5 = st.number_input("Medicine Kit (Rs700)", min_value=0, value=existing_p.get("Medicine Kit", 0), key=f"p5_{inst.patient_id}")
             if st.button("Add Pharmacy Items"):
                 try:
+                    added = False
                     for idx, qty in enumerate((p1, p2, p3, p4, p5), start=1):
                         if qty:
                             inst.add_pharmacy_item(idx, int(qty))
-                    save_data(st.session_state.patients)
-                    st.success(f"Added medicines. Total pharmacy cost: Rs {inst.pharmacy_charge}")
+                            added = True
+                    if added:
+                        save_data(st.session_state.patients)
+                        st.success(f"Added medicines. Total pharmacy cost: Rs {inst.pharmacy_charge}")
+                    else:
+                        st.info("No pharmacy items added.")
                 except RuntimeError as e:
                     st.error(str(e))
 
+            # show pharmacy summary
+            if inst.pharmacy_items:
+                st.markdown("**Current Pharmacy Summary:**")
+                for name, q in inst.pharmacy_items.items():
+                    st.write(f"- {name}: {q}")
+                st.write(f"**Total Pharmacy Charge:** Rs {inst.pharmacy_charge}")
+
             # Lab
             st.write("Lab Tests")
-            l1 = st.number_input("Blood Test (Rs400)", min_value=0, value=0, key=f"l1_{inst.patient_id}")
-            l2 = st.number_input("X-Ray (Rs800)", min_value=0, value=0, key=f"l2_{inst.patient_id}")
-            l3 = st.number_input("MRI (Rs7000)", min_value=0, value=0, key=f"l3_{inst.patient_id}")
-            l4 = st.number_input("CT Scan (Rs5000)", min_value=0, value=0, key=f"l4_{inst.patient_id}")
-            l5 = st.number_input("Ultrasound (Rs1200)", min_value=0, value=0, key=f"l5_{inst.patient_id}")
+            existing_l = inst.lab_items if inst else {}
+            l1 = st.number_input("Blood Test (Rs400)", min_value=0, value=existing_l.get("Blood Test", 0), key=f"l1_{inst.patient_id}")
+            l2 = st.number_input("X-Ray (Rs800)", min_value=0, value=existing_l.get("X-Ray", 0), key=f"l2_{inst.patient_id}")
+            l3 = st.number_input("MRI (Rs7000)", min_value=0, value=existing_l.get("MRI", 0), key=f"l3_{inst.patient_id}")
+            l4 = st.number_input("CT Scan (Rs5000)", min_value=0, value=existing_l.get("CT Scan", 0), key=f"l4_{inst.patient_id}")
+            l5 = st.number_input("Ultrasound (Rs1200)", min_value=0, value=existing_l.get("Ultrasound", 0), key=f"l5_{inst.patient_id}")
             if st.button("Add Lab Tests"):
                 try:
+                    added = False
                     for idx, qty in enumerate((l1, l2, l3, l4, l5), start=1):
                         if qty:
                             inst.add_lab_test(idx, int(qty))
-                    save_data(st.session_state.patients)
-                    st.success(f"Added lab tests. Total lab cost: Rs {inst.lab_charge}")
+                            added = True
+                    if added:
+                        save_data(st.session_state.patients)
+                        st.success(f"Added lab tests. Total lab cost: Rs {inst.lab_charge}")
+                    else:
+                        st.info("No lab tests added.")
                 except RuntimeError as e:
                     st.error(str(e))
+
+            # show lab summary
+            if inst.lab_items:
+                st.markdown("**Current Lab Summary:**")
+                for name, q in inst.lab_items.items():
+                    st.write(f"- {name}: {q}")
+                st.write(f"**Total Lab Charge:** Rs {inst.lab_charge}")
 
             # Doctor assignment
             st.write("Doctor assignment")

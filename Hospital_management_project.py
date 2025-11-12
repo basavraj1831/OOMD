@@ -36,7 +36,7 @@ DATA_FILE = Path("patients_data.json")
 BED_TYPES = {
     1: "ICU",
     2: "Private",
-    3: "Semi-Private",
+    3: "Semi Private",
     4: "General",
 }
 BEDS_PER_TYPE = 20
@@ -406,7 +406,7 @@ class HospitalManagement:
             rate = 12000
         elif tname == "Private":
             rate = 8000
-        elif tname == "Semi-Private":
+        elif tname == "Semi Private":
             rate = 5000
         elif tname == "General":
             rate = 3000
